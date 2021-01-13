@@ -63,18 +63,6 @@ class CameraFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        viewFinder.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                val previewSize = getPreviewOutputSize(
-                    viewFinder.display, cameraService.characteristics, SurfaceHolder::class.java
-                )
-                viewFinder.setAspectRatio(previewSize.width, previewSize.height)
-                cameraService.init()
-            }
-
-            override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
-            override fun surfaceDestroyed(holder: SurfaceHolder) {}
-        })
         captureButton.setOnClickListener {
             viewModel.onClickCapture()
         }

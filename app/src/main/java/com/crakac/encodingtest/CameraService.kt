@@ -15,9 +15,13 @@ import android.provider.MediaStore
 import android.util.Log
 import android.util.Range
 import android.view.Surface
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.core.content.getSystemService
+import com.crakac.encodingtest.util.AutoFitSurfaceView
+import com.crakac.encodingtest.util.getPreviewOutputSize
 import kotlinx.coroutines.*
+import java.io.File
 import java.io.IOException
 import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
@@ -37,7 +41,7 @@ class CameraService(
     private val width: Int,
     private val height: Int,
     private val fps: Int,
-    previewSurface: SurfaceView
+    previewSurface: AutoFitSurfaceView
 ) {
     private val contextRef = WeakReference(context.applicationContext)
     private val context: Context? get() = contextRef.get()
@@ -52,7 +56,7 @@ class CameraService(
     val characteristics: CameraCharacteristics get() = _characteristics
     private val recorderSurface by lazy {
         val surface = MediaCodec.createPersistentInputSurface()
-        createRecorder(surface).apply {
+        createRecorder(surface, dummy = true).apply {
             prepare()
             release()
         }
@@ -79,6 +83,21 @@ class CameraService(
     private var recordingStartMillis = 0L
     private var outputUri: Uri? = null
     private var outputFd: ParcelFileDescriptor? = null
+
+    init {
+        previewSurface.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                val previewSize = getPreviewOutputSize(
+                    previewSurface.display, characteristics, SurfaceHolder::class.java
+                )
+                previewSurface.setAspectRatio(previewSize.width, previewSize.height)
+                initializeCamera()
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
+            override fun surfaceDestroyed(holder: SurfaceHolder) {}
+        })
+    }
 
     private fun initializeCamera() = scope.launch(Dispatchers.Main) {
         camera = openCamera(cameraManager, cameraId, cameraExecutor)
@@ -140,14 +159,19 @@ class CameraService(
             device.createCaptureSession(config)
         }
 
-    private fun createRecorder(surface: Surface) = MediaRecorder().apply {
-        createFileUri()
+    private fun createRecorder(surface: Surface, dummy: Boolean = false) = MediaRecorder().apply {
 
         setAudioSource(MediaRecorder.AudioSource.MIC)
         setVideoSource(MediaRecorder.VideoSource.SURFACE)
 
         setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-        setOutputFile(outputFd!!.fileDescriptor)
+
+        if (dummy) {
+            setOutputFile(File.createTempFile("dummy", null))
+        } else {
+            prepareFileUri()
+            setOutputFile(outputFd!!.fileDescriptor)
+        }
 
         setAudioChannels(1)
         setAudioEncodingBitRate(64 * 1024)
@@ -172,7 +196,7 @@ class CameraService(
     }
 
     fun stopRecording() {
-        if(recorder == null) return
+        if (recorder == null) return
         scope.launch {
             val elapsedTimeMillis = System.currentTimeMillis() - recordingStartMillis
             if (elapsedTimeMillis < MIN_REQUIRED_RECORDING_TIME_MILLIS) {
@@ -186,7 +210,7 @@ class CameraService(
         }
     }
 
-    private fun createFileUri() {
+    private fun prepareFileUri() {
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
@@ -201,10 +225,10 @@ class CameraService(
         outputFd = contentResolver.openFileDescriptor(outputUri!!, "rw")!!
     }
 
-    private fun save(){
-        try{
+    private fun save() {
+        try {
             outputFd?.close()
-        } catch (e: IOException){
+        } catch (e: IOException) {
             Log.e(TAG, e.message, e)
         }
         val values = ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }
@@ -216,10 +240,6 @@ class CameraService(
 
     fun setStateListener(listener: StateListener) {
         stateListener = listener
-    }
-
-    fun init() {
-        initializeCamera()
     }
 
     fun stop() {
@@ -235,10 +255,10 @@ class CameraService(
         scope.cancel()
     }
 
-    private fun close(camera: CameraDevice?){
-        try{
+    private fun close(camera: CameraDevice?) {
+        try {
             camera?.close()
-        } catch (e: IOException){
+        } catch (e: IOException) {
             Log.e(TAG, e.message, e)
         }
     }
