@@ -18,7 +18,10 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.core.content.getSystemService
+import androidx.lifecycle.*
+import androidx.lifecycle.Observer
 import com.crakac.encodingtest.util.AutoFitSurfaceView
+import com.crakac.encodingtest.util.OrientationLiveData
 import com.crakac.encodingtest.util.getPreviewOutputSize
 import kotlinx.coroutines.*
 import java.io.File
@@ -42,13 +45,13 @@ class CameraService(
     private val height: Int,
     private val fps: Int,
     previewSurface: AutoFitSurfaceView
-) {
+) : LifecycleObserver {
     private val contextRef = WeakReference(context.applicationContext)
     private val context: Context? get() = contextRef.get()
     private val cameraExecutor = Executors.newFixedThreadPool(2)
     private val previewRef = WeakReference(previewSurface)
     private val previewSurface: SurfaceView? get() = previewRef.get()
-    private var stateListener: StateListener? = null
+    private var listener: StateListener? = null
     private val scope = CoroutineScope(Job())
     private val cameraManager = context.getSystemService<CameraManager>()!!
     private val contentResolver = context.contentResolver
@@ -65,6 +68,10 @@ class CameraService(
     private var recorder: MediaRecorder? = null
     private lateinit var session: CameraCaptureSession
     private var camera: CameraDevice? = null
+    private val orientationLiveData = OrientationLiveData(context, characteristics)
+    private val orientationObserver = Observer<Int> { newOrientation ->
+        orientation = newOrientation
+    }
 
     private val previewRequest: CaptureRequest by lazy {
         session.device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
@@ -83,6 +90,9 @@ class CameraService(
     private var recordingStartMillis = 0L
     private var outputUri: Uri? = null
     private var outputFd: ParcelFileDescriptor? = null
+    private var orientation = 0
+    private val _isRecording = MutableLiveData(false)
+    val isRecording: LiveData<Boolean> get() = _isRecording
 
     init {
         previewSurface.holder.addCallback(object : SurfaceHolder.Callback {
@@ -97,6 +107,7 @@ class CameraService(
             override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
             override fun surfaceDestroyed(holder: SurfaceHolder) {}
         })
+        orientationLiveData.observeForever(orientationObserver)
     }
 
     private fun initializeCamera() = scope.launch(Dispatchers.Main) {
@@ -116,7 +127,7 @@ class CameraService(
                 override fun onOpened(camera: CameraDevice) = cont.resume(camera)
                 override fun onDisconnected(camera: CameraDevice) {
                     Log.w(TAG, "$cameraId has been disconnected")
-                    stateListener?.onDisconnected()
+                    listener?.onDisconnected()
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
@@ -151,7 +162,7 @@ class CameraService(
                         val exc =
                             RuntimeException("Camera ${device.id} session configuration failed")
                         Log.e(TAG, exc.message, exc)
-                        stateListener?.onCreateSessionFailed()
+                        listener?.onCreateSessionFailed()
                         cont.resumeWithException(exc)
                     }
                 }
@@ -184,19 +195,24 @@ class CameraService(
         setInputSurface(surface)
     }
 
-    fun startRecording(orientation: Int) = scope.launch {
-        recorder = createRecorder(recorderSurface)
-        session.setRepeatingRequest(recordRequest, null, null)
-        recorder?.apply {
-            setOrientationHint(orientation)
-            prepare()
-            start()
+    private fun startRecording() {
+        if (_isRecording.value == true) return
+        _isRecording.value = true
+        scope.launch {
+            recorder = createRecorder(recorderSurface)
+            session.setRepeatingRequest(recordRequest, null, null)
+            recorder?.apply {
+                setOrientationHint(orientation)
+                prepare()
+                start()
+            }
+            recordingStartMillis = System.currentTimeMillis()
         }
-        recordingStartMillis = System.currentTimeMillis()
     }
 
-    fun stopRecording() {
-        if (recorder == null) return
+    private fun stopRecording() {
+        if (_isRecording.value == false || recorder == null) return
+        _isRecording.value = false
         scope.launch {
             val elapsedTimeMillis = System.currentTimeMillis() - recordingStartMillis
             if (elapsedTimeMillis < MIN_REQUIRED_RECORDING_TIME_MILLIS) {
@@ -234,23 +250,35 @@ class CameraService(
         val values = ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }
         outputUri?.let { uri ->
             contentResolver.update(uri, values, null, null)
-            stateListener?.onSaved(uri)
+            listener?.onSaved(uri)
         }
     }
 
     fun setStateListener(listener: StateListener) {
-        stateListener = listener
+        this.listener = listener
     }
 
-    fun stop() {
-        close(camera)
+    @OnLifecycleEvent(Lifecycle.Event.ON_START)
+    private fun start() {
+        Log.d(TAG, "start()")
+        orientationLiveData.observeForever(orientationObserver)
     }
 
-    fun release() {
-        stateListener = null
+    @OnLifecycleEvent(Lifecycle.Event.ON_STOP)
+    private fun stop() {
+        Log.d(TAG, "stop()")
+        orientationLiveData.removeObserver(orientationObserver)
+        stopRecording()
+    }
+
+    @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+    private fun release() {
+        listener = null
         scope.launch {
+            close(camera)
             recorder?.release()
             recorderSurface.release()
+            cameraExecutor.shutdown()
         }
         scope.cancel()
     }
@@ -260,6 +288,14 @@ class CameraService(
             camera?.close()
         } catch (e: IOException) {
             Log.e(TAG, e.message, e)
+        }
+    }
+
+    fun toggleRecording() {
+        if(isRecording.value == true){
+            stopRecording()
+        } else {
+            startRecording()
         }
     }
 
