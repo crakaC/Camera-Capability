@@ -16,7 +16,6 @@ import android.util.Log
 import android.util.Range
 import android.view.Surface
 import android.view.SurfaceHolder
-import android.view.SurfaceView
 import androidx.core.content.getSystemService
 import androidx.lifecycle.*
 import androidx.lifecycle.Observer
@@ -50,7 +49,7 @@ class CameraService(
     private val context: Context? get() = contextRef.get()
     private val cameraExecutor = Executors.newFixedThreadPool(1)
     private val previewRef = WeakReference(previewSurface)
-    private val previewSurface: SurfaceView? get() = previewRef.get()
+    private val previewSurface: Surface? get() = previewRef.get()?.holder?.surface
     private var listener: StateListener? = null
     private val scope = CoroutineScope(Job())
     private val cameraManager = context.getSystemService<CameraManager>()!!
@@ -157,7 +156,7 @@ class CameraService(
         executor: Executor
     ): CameraCaptureSession =
         suspendCoroutine { cont ->
-            val previewConfig = OutputConfiguration(previewSurface!!.holder.surface)
+            val previewConfig = OutputConfiguration(previewSurface!!)
             val recordConfig = OutputConfiguration(recorderSurface)
             val config = SessionConfiguration(SessionConfiguration.SESSION_REGULAR,
                 listOf(previewConfig, recordConfig),
