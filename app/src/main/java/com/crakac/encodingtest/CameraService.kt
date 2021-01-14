@@ -48,7 +48,7 @@ class CameraService(
 ) : LifecycleObserver {
     private val contextRef = WeakReference(context.applicationContext)
     private val context: Context? get() = contextRef.get()
-    private val cameraExecutor = Executors.newFixedThreadPool(2)
+    private val cameraExecutor = Executors.newFixedThreadPool(1)
     private val previewRef = WeakReference(previewSurface)
     private val previewSurface: SurfaceView? get() = previewRef.get()
     private var listener: StateListener? = null
@@ -95,8 +95,10 @@ class CameraService(
     val isRecording: LiveData<Boolean> get() = _isRecording
 
     init {
+        Log.d(TAG, "init()")
         previewSurface.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
+                Log.d(TAG, "PreviewSurface created")
                 val previewSize = getPreviewOutputSize(
                     previewSurface.display, characteristics, SurfaceHolder::class.java
                 )
@@ -105,12 +107,13 @@ class CameraService(
             }
 
             override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
-            override fun surfaceDestroyed(holder: SurfaceHolder) {}
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                Log.d(TAG, "PreviewSurface destroyed")
+            }
         })
-        orientationLiveData.observeForever(orientationObserver)
     }
 
-    private fun initializeCamera() = scope.launch(Dispatchers.Main) {
+    private fun initializeCamera() = scope.launch {
         camera = openCamera(cameraManager, cameraId, cameraExecutor)
         session = createCaptureSession(camera!!, cameraExecutor)
         session.setRepeatingRequest(previewRequest, null, null)
@@ -124,10 +127,13 @@ class CameraService(
     ): CameraDevice =
         suspendCancellableCoroutine { cont ->
             manager.openCamera(cameraId, executor, object : CameraDevice.StateCallback() {
-                override fun onOpened(camera: CameraDevice) = cont.resume(camera)
+                override fun onOpened(camera: CameraDevice) {
+                    Log.d(TAG, "camera:${camera.id} opened")
+                    cont.resume(camera)
+                }
+
                 override fun onDisconnected(camera: CameraDevice) {
-                    Log.w(TAG, "$cameraId has been disconnected")
-                    listener?.onDisconnected()
+                    Log.w(TAG, "camera(${camera.id}) has been disconnected")
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
@@ -139,7 +145,7 @@ class CameraService(
                         ERROR_MAX_CAMERAS_IN_USE -> "Maximum cameras in use"
                         else -> "Unknown"
                     }
-                    val exc = RuntimeException("Camera $cameraId error: ($error) $msg")
+                    val exc = RuntimeException("Camera ${camera.id} error: ($error) $msg")
                     Log.e(TAG, exc.message, exc)
                     if (cont.isActive) cont.resumeWithException(exc)
                 }
@@ -157,13 +163,22 @@ class CameraService(
                 listOf(previewConfig, recordConfig),
                 executor,
                 object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(session: CameraCaptureSession) = cont.resume(session)
+                    override fun onConfigured(session: CameraCaptureSession) {
+                        Log.d(TAG, "CaptureSession configured")
+                        cont.resume(session)
+                    }
+
                     override fun onConfigureFailed(session: CameraCaptureSession) {
                         val exc =
-                            RuntimeException("Camera ${device.id} session configuration failed")
+                            RuntimeException("Camera ${session.device.id} session configuration failed")
                         Log.e(TAG, exc.message, exc)
                         listener?.onCreateSessionFailed()
                         cont.resumeWithException(exc)
+                    }
+
+                    override fun onClosed(session: CameraCaptureSession) {
+                        Log.d(TAG, "session closed")
+                        close(camera)
                     }
                 }
             )
@@ -199,8 +214,8 @@ class CameraService(
         if (_isRecording.value == true) return
         _isRecording.value = true
         scope.launch {
-            recorder = createRecorder(recorderSurface)
             session.setRepeatingRequest(recordRequest, null, null)
+            recorder = createRecorder(recorderSurface)
             recorder?.apply {
                 setOrientationHint(orientation)
                 prepare()
@@ -211,17 +226,20 @@ class CameraService(
     }
 
     private fun stopRecording() {
-        if (_isRecording.value == false || recorder == null) return
+        if (_isRecording.value == false) return
         _isRecording.value = false
+        session.setRepeatingRequest(previewRequest, null, null)
         scope.launch {
             val elapsedTimeMillis = System.currentTimeMillis() - recordingStartMillis
             if (elapsedTimeMillis < MIN_REQUIRED_RECORDING_TIME_MILLIS) {
                 delay(MIN_REQUIRED_RECORDING_TIME_MILLIS - elapsedTimeMillis)
             }
+            val before = System.currentTimeMillis()
             recorder?.stop()
             recorder?.release()
             recorder = null
-            session.setRepeatingRequest(previewRequest, null, null)
+            val ms = System.currentTimeMillis() - before
+            Log.d(TAG, "recorder stop/release needs ${ms}ms")
             save()
         }
     }
@@ -269,15 +287,18 @@ class CameraService(
         Log.d(TAG, "stop()")
         orientationLiveData.removeObserver(orientationObserver)
         stopRecording()
+        session.stopRepeating()
     }
 
     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
     private fun release() {
+        Log.d(TAG, "release()")
         listener = null
         scope.launch {
             close(camera)
             recorder?.release()
             recorderSurface.release()
+            session.close()
             cameraExecutor.shutdown()
         }
         scope.cancel()
@@ -292,7 +313,7 @@ class CameraService(
     }
 
     fun toggleRecording() {
-        if(isRecording.value == true){
+        if (isRecording.value == true) {
             stopRecording()
         } else {
             startRecording()
@@ -301,7 +322,6 @@ class CameraService(
 
     interface StateListener {
         fun onSaved(savedFileUri: Uri) {}
-        fun onDisconnected() {}
         fun onCreateSessionFailed() {}
     }
 
