@@ -1,33 +1,27 @@
 package com.crakac.encodingtest
 
 import android.annotation.SuppressLint
-import android.content.ContentValues
 import android.content.Context
-import android.hardware.camera2.*
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
-import android.media.MediaCodec
-import android.media.MediaRecorder
 import android.net.Uri
-import android.os.Environment
 import android.os.ParcelFileDescriptor
-import android.provider.MediaStore
 import android.util.Log
 import android.util.Range
 import android.view.Surface
 import android.view.SurfaceHolder
 import androidx.core.content.getSystemService
 import androidx.lifecycle.*
-import androidx.lifecycle.Observer
 import com.crakac.encodingtest.util.AutoFitSurfaceView
 import com.crakac.encodingtest.util.OrientationLiveData
 import com.crakac.encodingtest.util.getPreviewOutputSize
 import kotlinx.coroutines.*
-import java.io.File
 import java.io.IOException
 import java.lang.ref.WeakReference
-import java.text.SimpleDateFormat
-import java.util.*
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
@@ -55,15 +49,7 @@ class CameraService(
     private val cameraManager = context.getSystemService<CameraManager>()!!
     private val contentResolver = context.contentResolver
     private val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-    private val recorderSurface by lazy {
-        val surface = MediaCodec.createPersistentInputSurface()
-        createRecorder(surface, dummy = true).apply {
-            prepare()
-            release()
-        }
-        surface
-    }
-    private var recorder: MediaRecorder? = null
+    private lateinit var recorder: Recorder
     private lateinit var session: CameraCaptureSession
     private var camera: CameraDevice? = null
     private val orientationLiveData = OrientationLiveData(context, characteristics)
@@ -79,7 +65,7 @@ class CameraService(
 
     private val recordRequest: CaptureRequest by lazy {
         session.device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-            addTarget(recorderSurface)
+            addTarget(recorder.getSurface())
             addTarget(previewSurface.holder.surface)
             set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
         }.build()
@@ -113,6 +99,7 @@ class CameraService(
 
     private fun initializeCamera() = scope.launch {
         camera = openCamera(cameraManager, cameraId, cameraExecutor)
+        recorder = DefaultMediaRecorder(width, height, fps) { uri -> listener?.onSaved(uri) }
         session = createCaptureSession(camera!!, cameraExecutor)
         session.setRepeatingRequest(previewRequest, null, null)
     }
@@ -156,7 +143,7 @@ class CameraService(
     ): CameraCaptureSession =
         suspendCoroutine { cont ->
             val previewConfig = OutputConfiguration(previewSurface!!)
-            val recordConfig = OutputConfiguration(recorderSurface)
+            val recordConfig = OutputConfiguration(recorder.getSurface())
             val config = SessionConfiguration(SessionConfiguration.SESSION_REGULAR,
                 listOf(previewConfig, recordConfig),
                 executor,
@@ -183,40 +170,14 @@ class CameraService(
             device.createCaptureSession(config)
         }
 
-    private fun createRecorder(surface: Surface, dummy: Boolean = false) = MediaRecorder().apply {
-
-        setAudioSource(MediaRecorder.AudioSource.MIC)
-        setVideoSource(MediaRecorder.VideoSource.SURFACE)
-
-        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-
-        if (dummy) {
-            setOutputFile(File.createTempFile("dummy", null))
-        } else {
-            prepareFileUri()
-            setOutputFile(outputFd!!.fileDescriptor)
-        }
-
-        setAudioChannels(1)
-        setAudioEncodingBitRate(64 * 1024)
-        setAudioSamplingRate(44100)
-        if (fps > 0) setVideoFrameRate(fps)
-        setVideoSize(width, height)
-        setVideoEncodingBitRate(5 * 1024 * 1024)
-        setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-        setAudioEncoder(MediaRecorder.AudioEncoder.HE_AAC)
-        setInputSurface(surface)
-    }
-
     private fun startRecording() {
         if (_isRecording.value == true) return
         _isRecording.value = true
         scope.launch {
             session.setRepeatingRequest(recordRequest, null, null)
-            recorder = createRecorder(recorderSurface)
-            recorder?.apply {
-                setOrientationHint(orientation)
+            recorder.apply {
                 prepare()
+                setOrientationHint(orientation)
                 start()
             }
             recordingStartMillis = System.currentTimeMillis()
@@ -233,40 +194,10 @@ class CameraService(
                 delay(MIN_REQUIRED_RECORDING_TIME_MILLIS - elapsedTimeMillis)
             }
             val before = System.currentTimeMillis()
-            recorder?.stop()
-            recorder?.release()
-            recorder = null
+            recorder.stop()
+            recorder.release()
             val ms = System.currentTimeMillis() - before
             Log.d(TAG, "recorder stop/release needs ${ms}ms")
-            save()
-        }
-    }
-
-    private fun prepareFileUri() {
-        val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        val values = ContentValues().apply {
-            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                "${Environment.DIRECTORY_MOVIES}/${context?.getString(R.string.app_name)}"
-            )
-            put(MediaStore.Video.Media.DISPLAY_NAME, generateFilename("mp4"))
-            put(MediaStore.Video.Media.IS_PENDING, 1)
-        }
-        outputUri = contentResolver.insert(collection, values)!!
-        outputFd = contentResolver.openFileDescriptor(outputUri!!, "rw")!!
-    }
-
-    private fun save() {
-        try {
-            outputFd?.close()
-        } catch (e: IOException) {
-            Log.e(TAG, e.message, e)
-        }
-        val values = ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }
-        outputUri?.let { uri ->
-            contentResolver.update(uri, values, null, null)
-            listener?.onSaved(uri)
         }
     }
 
@@ -294,8 +225,7 @@ class CameraService(
         listener = null
         scope.launch {
             close(camera)
-            recorder?.release()
-            recorderSurface.release()
+            recorder.release()
             session.close()
             cameraExecutor.shutdown()
         }
@@ -321,15 +251,5 @@ class CameraService(
     interface StateListener {
         fun onSaved(savedFileUri: Uri) {}
         fun onCreateSessionFailed() {}
-    }
-
-    companion object {
-        private fun generateFilename(ext: String) =
-            "${
-                SimpleDateFormat(
-                    "yyyyMMdd_HHmmss_SSS",
-                    Locale.getDefault()
-                ).format(Date())
-            }.$ext"
     }
 }
