@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">EncodingTest</string>
     <string name="start_stop_recording">Start/Stop recording</string>
+    <string name="select_codec">Select Codec</string>
 </resources>

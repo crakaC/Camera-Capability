@@ -14,6 +14,9 @@
             app:exitAnim="@anim/fragment_open_exit"
             app:popEnterAnim="@anim/fragment_fade_enter"
             app:popExitAnim="@anim/fragment_fade_exit" />
+        <action
+            android:id="@+id/action_selectorFragment_to_codecSelectFragment"
+            app:destination="@id/codecSelectFragment" />
     </fragment>
     <fragment
         android:id="@+id/cameraFragment"
@@ -32,4 +35,8 @@
             android:name="fps"
             app:argType="integer" />
     </fragment>
+    <fragment
+        android:id="@+id/codecSelectFragment"
+        android:name="com.crakac.encodingtest.CodecSelectFragment"
+        android:label="CodecSelectFragment" />
 </navigation>

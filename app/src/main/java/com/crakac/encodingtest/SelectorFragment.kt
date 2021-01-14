@@ -6,17 +6,23 @@ import android.hardware.camera2.CameraManager
 import android.media.MediaRecorder
 import android.os.Bundle
 import android.util.Size
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
+import android.view.*
 import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.navigation.NavController
 import androidx.navigation.Navigation
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.crakac.encodingtest.util.GenericListAdapter
 
 class SelectorFragment : Fragment() {
+    private val navController: NavController by lazy {
+        Navigation.findNavController(
+            requireActivity(),
+            R.id.fragment_container
+        )
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -31,17 +37,34 @@ class SelectorFragment : Fragment() {
             val cameraManager =
                 requireContext().getSystemService(Context.CAMERA_SERVICE) as CameraManager
             val cameraList = enumerateVideoCameras(cameraManager)
-            adapter = GenericListAdapter(cameraList, android.R.layout.simple_list_item_1) { view, item, _ ->
+            adapter = GenericListAdapter(
+                cameraList,
+                android.R.layout.simple_list_item_1
+            ) { view, item, _ ->
                 view.findViewById<TextView>(android.R.id.text1).text = item.name
-                view.setOnClickListener{
-                    Navigation.findNavController(requireActivity(), R.id.fragment_container)
-                        .navigate(SelectorFragmentDirections.actionSelectorFragmentToCameraFragment(
+                view.setOnClickListener {
+                    navController.navigate(
+                        SelectorFragmentDirections.actionSelectorFragmentToCameraFragment(
                             item.cameraId, item.size.width, item.size.height, item.fps
-                        ))
+                        )
+                    )
                 }
 
             }
         }
+        setHasOptionsMenu(true)
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        inflater.inflate(R.menu.menu_selectorfragment, menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == R.id.select_codec) {
+            navController.navigate(SelectorFragmentDirections.actionSelectorFragmentToCodecSelectFragment())
+            return true
+        }
+        return false
     }
 
     companion object {
