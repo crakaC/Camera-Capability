@@ -54,8 +54,7 @@ class CameraService(
     private val scope = CoroutineScope(Job())
     private val cameraManager = context.getSystemService<CameraManager>()!!
     private val contentResolver = context.contentResolver
-    private val _characteristics = cameraManager.getCameraCharacteristics(cameraId)
-    val characteristics: CameraCharacteristics get() = _characteristics
+    private val characteristics = cameraManager.getCameraCharacteristics(cameraId)
     private val recorderSurface by lazy {
         val surface = MediaCodec.createPersistentInputSurface()
         createRecorder(surface, dummy = true).apply {
