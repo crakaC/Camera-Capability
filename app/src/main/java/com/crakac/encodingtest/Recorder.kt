@@ -4,8 +4,7 @@ import android.view.Surface
 
 interface Recorder {
     fun getSurface(): Surface
-    fun setOrientationHint(orientation: Int)
-    fun prepare()
+    fun prepare(orientation: Int)
     fun start()
     fun stop()
     fun release()

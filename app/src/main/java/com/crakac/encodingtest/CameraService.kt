@@ -6,10 +6,9 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.params.OutputConfiguration
-import android.hardware.camera2.params.SessionConfiguration
 import android.net.Uri
-import android.os.ParcelFileDescriptor
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.util.Range
 import android.view.Surface
@@ -18,12 +17,11 @@ import androidx.core.content.getSystemService
 import androidx.lifecycle.*
 import com.crakac.encodingtest.util.AutoFitSurfaceView
 import com.crakac.encodingtest.util.OrientationLiveData
+import com.crakac.encodingtest.util.Util
 import com.crakac.encodingtest.util.getPreviewOutputSize
 import kotlinx.coroutines.*
 import java.io.IOException
 import java.lang.ref.WeakReference
-import java.util.concurrent.Executor
-import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -37,21 +35,25 @@ class CameraService(
     private val width: Int,
     private val height: Int,
     private val fps: Int,
-    previewSurface: AutoFitSurfaceView
+    viewFinder: AutoFitSurfaceView
 ) : LifecycleObserver {
-    private val contextRef = WeakReference(context.applicationContext)
-    private val context: Context? get() = contextRef.get()
-    private val cameraExecutor = Executors.newFixedThreadPool(1)
-    private val previewRef = WeakReference(previewSurface)
-    private val previewSurface: Surface? get() = previewRef.get()?.holder?.surface
-    private var listener: StateListener? = null
     private val scope = CoroutineScope(Job())
+
+    private val previewRef = WeakReference(viewFinder)
+    private val previewSurface: Surface get() = previewRef.get()!!.holder.surface
+
+    private val cameraThread = HandlerThread("Camera Thread").apply { start() }
+    private val cameraHandler = Handler(cameraThread.looper)
+
+    private var listener: StateListener? = null
+
     private val cameraManager = context.getSystemService<CameraManager>()!!
-    private val contentResolver = context.contentResolver
     private val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+
     private lateinit var recorder: Recorder
     private lateinit var session: CameraCaptureSession
     private var camera: CameraDevice? = null
+
     private val orientationLiveData = OrientationLiveData(context, characteristics)
     private val orientationObserver = Observer<Int> { newOrientation ->
         orientation = newOrientation
@@ -59,38 +61,38 @@ class CameraService(
 
     private val previewRequest: CaptureRequest by lazy {
         session.device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-            addTarget(previewSurface.holder.surface)
+            addTarget(previewSurface)
         }.build()
     }
 
     private val recordRequest: CaptureRequest by lazy {
         session.device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+            addTarget(previewSurface)
             addTarget(recorder.getSurface())
-            addTarget(previewSurface.holder.surface)
             set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
         }.build()
     }
 
     private var recordingStartMillis = 0L
-    private var outputUri: Uri? = null
-    private var outputFd: ParcelFileDescriptor? = null
     private var orientation = 0
     private val _isRecording = MutableLiveData(false)
     val isRecording: LiveData<Boolean> get() = _isRecording
 
     init {
         Log.d(TAG, "init()")
-        previewSurface.holder.addCallback(object : SurfaceHolder.Callback {
+        viewFinder.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 Log.d(TAG, "PreviewSurface created")
-                val previewSize = getPreviewOutputSize(
-                    previewSurface.display, characteristics, SurfaceHolder::class.java
-                )
-                previewSurface.setAspectRatio(previewSize.width, previewSize.height)
                 initializeCamera()
             }
 
-            override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {}
+            override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {
+                val previewSize = getPreviewOutputSize(
+                    viewFinder.display, characteristics, SurfaceHolder::class.java
+                )
+                viewFinder.setAspectRatio(previewSize.width, previewSize.height)
+            }
+
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 Log.d(TAG, "PreviewSurface destroyed")
             }
@@ -98,20 +100,24 @@ class CameraService(
     }
 
     private fun initializeCamera() = scope.launch {
-        camera = openCamera(cameraManager, cameraId, cameraExecutor)
-        recorder = DefaultMediaRecorder(width, height, fps) { uri -> listener?.onSaved(uri) }
-        session = createCaptureSession(camera!!, cameraExecutor)
+        camera = openCamera(cameraManager, cameraId)
+        if (!::recorder.isInitialized) {
+            recorder = CodecRecorder(width, height, fps, 5_000_000, Util.getCodec()) { uri ->
+                listener?.onSaved(uri)
+            }
+//             recorder = DefaultMediaRecorder(width, height, fps) { uri -> listener?.onSaved(uri) }
+        }
+        session = createCaptureSession(camera!!)
         session.setRepeatingRequest(previewRequest, null, null)
     }
 
     @SuppressLint("MissingPermission")
     private suspend fun openCamera(
         manager: CameraManager,
-        cameraId: String,
-        executor: Executor
+        cameraId: String
     ): CameraDevice =
         suspendCancellableCoroutine { cont ->
-            manager.openCamera(cameraId, executor, object : CameraDevice.StateCallback() {
+            manager.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     Log.d(TAG, "camera:${camera.id} opened")
                     cont.resume(camera)
@@ -119,6 +125,7 @@ class CameraService(
 
                 override fun onDisconnected(camera: CameraDevice) {
                     Log.w(TAG, "camera(${camera.id}) has been disconnected")
+                    camera.close()
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
@@ -133,20 +140,17 @@ class CameraService(
                     val exc = RuntimeException("Camera ${camera.id} error: ($error) $msg")
                     Log.e(TAG, exc.message, exc)
                     if (cont.isActive) cont.resumeWithException(exc)
+                    camera.close()
                 }
-            })
+            }, cameraHandler)
         }
 
     private suspend fun createCaptureSession(
-        device: CameraDevice,
-        executor: Executor
+        device: CameraDevice
     ): CameraCaptureSession =
         suspendCoroutine { cont ->
-            val previewConfig = OutputConfiguration(previewSurface!!)
-            val recordConfig = OutputConfiguration(recorder.getSurface())
-            val config = SessionConfiguration(SessionConfiguration.SESSION_REGULAR,
-                listOf(previewConfig, recordConfig),
-                executor,
+            device.createCaptureSession(
+                listOf(previewSurface, recorder.getSurface()),
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
                         Log.d(TAG, "CaptureSession configured")
@@ -163,11 +167,10 @@ class CameraService(
 
                     override fun onClosed(session: CameraCaptureSession) {
                         Log.d(TAG, "session closed")
-                        close(camera)
                     }
-                }
+                },
+                cameraHandler
             )
-            device.createCaptureSession(config)
         }
 
     private fun startRecording() {
@@ -175,11 +178,8 @@ class CameraService(
         _isRecording.value = true
         scope.launch {
             session.setRepeatingRequest(recordRequest, null, null)
-            recorder.apply {
-                prepare()
-                setOrientationHint(orientation)
-                start()
-            }
+            recorder.prepare(orientation)
+            recorder.start()
             recordingStartMillis = System.currentTimeMillis()
         }
     }
@@ -193,11 +193,7 @@ class CameraService(
             if (elapsedTimeMillis < MIN_REQUIRED_RECORDING_TIME_MILLIS) {
                 delay(MIN_REQUIRED_RECORDING_TIME_MILLIS - elapsedTimeMillis)
             }
-            val before = System.currentTimeMillis()
             recorder.stop()
-            recorder.release()
-            val ms = System.currentTimeMillis() - before
-            Log.d(TAG, "recorder stop/release needs ${ms}ms")
         }
     }
 
@@ -227,7 +223,7 @@ class CameraService(
             close(camera)
             recorder.release()
             session.close()
-            cameraExecutor.shutdown()
+            cameraThread.quitSafely()
         }
         scope.cancel()
     }

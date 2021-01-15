@@ -1,20 +1,20 @@
 package com.crakac.encodingtest
 
-import android.content.Context.MODE_PRIVATE
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.core.content.edit
 import androidx.fragment.app.Fragment
 import androidx.navigation.Navigation
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.crakac.encodingtest.util.GenericListAdapter
+import com.crakac.encodingtest.util.Util
 import com.google.android.material.snackbar.Snackbar
 
 class CodecSelectFragment : Fragment() {
@@ -39,9 +39,7 @@ class CodecSelectFragment : Fragment() {
             ) { view, data, _ ->
                 view.findViewById<TextView>(android.R.id.text1).text = data.toFormattedString()
                 view.setOnClickListener {
-                    requireContext().getSharedPreferences("info.pref", MODE_PRIVATE)!!.edit {
-                        putString("codec", data.name)
-                    }
+                    Util.saveCodec(data.name)
                     Navigation.findNavController(requireActivity(), R.id.fragment_container)
                         .popBackStack()
                     Snackbar.make(view, "Codec is set to ${data.name}", Snackbar.LENGTH_SHORT)
@@ -57,11 +55,16 @@ class CodecSelectFragment : Fragment() {
             MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.filter { codec ->
                 codec.isEncoder && codec.supportedTypes.any { it.toLowerCase() in targetTypes }
             }
+
         fun MediaCodecInfo.toFormattedString(): String {
             val ret = mutableListOf<String>()
-            ret += "$name($canonicalName)"
-            if (isHardwareAccelerated) ret += "🔥HW Accelerated"
-            if (isVendor) ret += "\uD83D\uDD27Vendor specific codec"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q){
+                ret += "$name($canonicalName)"
+                if (isHardwareAccelerated) ret += "🔥HW Accelerated"
+                if (isVendor) ret += "\uD83D\uDD27Vendor specific codec"
+            } else {
+                ret += name
+            }
             ret += "\uD83C\uDFA5" + supportedTypes.joinToString(", ")
             return ret.joinToString("\n")
         }

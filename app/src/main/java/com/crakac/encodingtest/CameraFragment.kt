@@ -3,7 +3,6 @@ package com.crakac.encodingtest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -25,10 +24,12 @@ class CameraFragment : Fragment() {
     private val listener = object : CameraService.StateListener {
         override fun onSaved(savedFileUri: Uri) {
             Snackbar.make(viewFinder, "Saved", Snackbar.LENGTH_LONG).setAction("Open") {
-                startActivity(Intent().apply {
+                context?.startActivity(Intent().apply {
                     action = Intent.ACTION_VIEW
                     type = "video/mp4"
                     data = savedFileUri
+                    flags =
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
                 })
             }.show()
         }
@@ -52,8 +53,8 @@ class CameraFragment : Fragment() {
         )
         cameraService.setStateListener(listener)
         lifecycle.addObserver(cameraService)
-        cameraService.isRecording.observe(viewLifecycleOwner){isRecording ->
-            if(isRecording){
+        cameraService.isRecording.observe(viewLifecycleOwner) { isRecording ->
+            if (isRecording) {
                 captureButton.setImageResource(R.drawable.stop_recording)
             } else {
                 captureButton.setImageResource(R.drawable.start_recording)

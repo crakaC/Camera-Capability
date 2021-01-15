@@ -3,12 +3,9 @@ package com.crakac.encodingtest
 import android.media.MediaCodec
 import android.media.MediaRecorder
 import android.net.Uri
-import android.os.ParcelFileDescriptor
-import android.util.Log
 import android.view.Surface
 import com.crakac.encodingtest.util.Util
 import java.io.File
-import java.io.IOException
 
 class DefaultMediaRecorder(
     private val width: Int,
@@ -27,35 +24,32 @@ class DefaultMediaRecorder(
         surface
     }
     private var outputUri: Uri? = null
-    private var outputFd: ParcelFileDescriptor? = null
     private var isRecording = false
-
-    override fun setOrientationHint(orientation: Int) {
-        recorder?.setOrientationHint(orientation)
-    }
 
     override fun getSurface() = recorderSurface
 
-    override fun prepare() {
+    override fun prepare(orientation: Int) {
+        recorder?.release()
         recorder = createMediaRecorder(recorderSurface)
+        recorder?.setOrientationHint(orientation)
+        recorder?.prepare()
     }
 
     override fun start() {
         isRecording = true
-        recorder?.prepare()
         recorder?.start()
     }
 
     override fun stop() {
-        if(isRecording){
+        if (isRecording) {
             isRecording = false
             recorder?.stop()
+            recorder?.release()
             save()
         }
     }
 
     override fun release() {
-        recorder?.release()
         recorderSurface.release()
     }
 
@@ -71,8 +65,8 @@ class DefaultMediaRecorder(
                 setOutputFile(File.createTempFile("dummy", null).absolutePath)
             } else {
                 outputUri = Util.createNewFileUri()
-                outputFd = Util.openFileDescriptor(outputUri!!)
-                setOutputFile(outputFd!!.fileDescriptor)
+                val fd = Util.getFileDescriptor(outputUri!!)
+                setOutputFile(fd)
             }
 
             setAudioChannels(1)
@@ -87,11 +81,6 @@ class DefaultMediaRecorder(
         }
 
     private fun save() {
-        try {
-            outputFd?.close()
-        } catch (e: IOException) {
-            Log.e(TAG, e.message, e)
-        }
         outputUri?.let {
             onSave?.invoke(it)
         }
