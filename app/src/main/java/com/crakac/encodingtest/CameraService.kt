@@ -164,7 +164,6 @@ class CameraService(
                         val exc =
                             RuntimeException("Camera ${session.device.id} session configuration failed")
                         Log.e(TAG, exc.message, exc)
-                        listener?.onCreateSessionFailed()
                         cont.resumeWithException(exc)
                     }
 
@@ -248,7 +247,6 @@ class CameraService(
     }
 
     interface StateListener {
-        fun onSaved(savedFileUri: Uri) {}
-        fun onCreateSessionFailed() {}
+        fun onSaved(savedFileUri: Uri)
     }
 }
