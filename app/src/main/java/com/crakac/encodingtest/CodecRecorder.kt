@@ -42,7 +42,7 @@ class CodecRecorder(
         videoEncoder.release()
     }
 
-    override fun onDataEncoded(data: ByteArray) {
+    override fun onData(data: ByteArray) {
     }
 
     override fun onEncodeEnd() {

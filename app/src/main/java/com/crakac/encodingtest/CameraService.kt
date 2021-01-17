@@ -155,8 +155,10 @@ class CameraService(
                 listOf(previewSurface, recorder.getSurface()),
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
-                        Log.d(TAG, "CaptureSession configured" +
-                                "(${System.currentTimeMillis() - t}ms)")
+                        Log.d(
+                            TAG, "CaptureSession configured" +
+                                    "(${System.currentTimeMillis() - t}ms)"
+                        )
                         cont.resume(session)
                     }
 
@@ -165,10 +167,6 @@ class CameraService(
                             RuntimeException("Camera ${session.device.id} session configuration failed")
                         Log.e(TAG, exc.message, exc)
                         cont.resumeWithException(exc)
-                    }
-
-                    override fun onClosed(session: CameraCaptureSession) {
-                        Log.d(TAG, "session closed")
                     }
                 },
                 cameraHandler
@@ -179,7 +177,17 @@ class CameraService(
         if (_isRecording.value == true) return
         _isRecording.value = true
         scope.launch {
-            session.setRepeatingRequest(recordRequest, null, null)
+            session.setRepeatingRequest(
+                recordRequest,
+                object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureSequenceCompleted(
+                        session: CameraCaptureSession, sequenceId: Int, frameNumber: Long
+                    ) {
+                        recorder.stop()
+                    }
+                },
+                cameraHandler
+            )
             recorder.prepare(orientation)
             recorder.start()
             recordingStartMillis = System.currentTimeMillis()
@@ -189,13 +197,13 @@ class CameraService(
     private fun stopRecording() {
         if (_isRecording.value == false) return
         _isRecording.value = false
-        session.setRepeatingRequest(previewRequest, null, null)
         scope.launch {
             val elapsedTimeMillis = System.currentTimeMillis() - recordingStartMillis
             if (elapsedTimeMillis < MIN_REQUIRED_RECORDING_TIME_MILLIS) {
                 delay(MIN_REQUIRED_RECORDING_TIME_MILLIS - elapsedTimeMillis)
             }
-            recorder.stop()
+            session.abortCaptures()
+            session.setRepeatingRequest(previewRequest, null, null)
         }
     }
 
