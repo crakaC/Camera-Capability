@@ -32,7 +32,7 @@ class VideoEncoder(
     private val scope = CoroutineScope(Dispatchers.IO)
 
     private var listener: VideoEncoderListener? = null
-    private lateinit var muxer: MediaMuxer
+    private var muxer: MediaMuxer? = null
 
     fun setVideoEncoderListener(listener: VideoEncoderListener?) {
         this.listener = listener
@@ -49,7 +49,7 @@ class VideoEncoder(
     val surface: Surface = MediaCodec.createPersistentInputSurface()
 
     private var bufferInfo = MediaCodec.BufferInfo()
-
+    private var isFirstPrepare = true
     init {
         format = MediaFormat.createVideoFormat(MIME_TYPE, width, height).apply {
             setInteger(MediaFormat.KEY_WIDTH, width)
@@ -69,21 +69,25 @@ class VideoEncoder(
         }
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         encoder.setInputSurface(surface)
-        encoder.reset()
     }
 
     fun prepare() {
+        if(isFirstPrepare) {
+            isFirstPrepare = false
+            return
+        }
+        encoder.reset()
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         encoder.setInputSurface(surface)
     }
 
     override fun start() {
-        if (!::muxer.isInitialized) {
+        if (muxer == null) {
             throw IllegalStateException("set muxer before start()")
         }
         isEncoding = true
         encoder.start()
-        Log.i(TAG, "************ENCODER START************")
+        Log.v(TAG, "************ENCODER START************")
         drain()
     }
 
@@ -95,20 +99,21 @@ class VideoEncoder(
 
     override fun isEncoding() = isEncoding
 
-    private var frameCount = 0L
+    private var bufferCount = 0L
     private fun drain() {
         var trackIndex = -1
-        frameCount = 0
+        bufferCount = 0
+        var bufferId = 0
         scope.launch {
             while (isEncoding) {
-                val bufferId = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_MICRO_SEC)
+                bufferId = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_MICRO_SEC)
                 if (bufferId == MediaCodec.INFO_TRY_AGAIN_LATER) {
                     continue
                 } else if (bufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    Log.i(TAG, "OUTPUT FORMAT CHANGED")
+                    Log.v(TAG, "OUTPUT FORMAT CHANGED")
                     val format = encoder.outputFormat
-                    trackIndex = muxer.addTrack(format)
-                    muxer.start()
+                    trackIndex = muxer!!.addTrack(format)
+                    muxer!!.start()
                 } else {
                     val encodedData = encoder.getOutputBuffer(bufferId)
                         ?: throw RuntimeException("VideoEncoder: encodedData was null")
@@ -118,28 +123,28 @@ class VideoEncoder(
                     }
 
                     if (bufferInfo.size > 0) {
-                        frameCount++
+                        bufferCount++
                         encodedData.position(bufferInfo.offset)
                         encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                        muxer.writeSampleData(trackIndex, encodedData, bufferInfo)
-//                        val data = ByteArray(bufferInfo.size)
-//                        encodedData.get(data, 0, bufferInfo.size)
-//                        listener?.onDataEncoded(data)
+                        muxer!!.writeSampleData(trackIndex, encodedData, bufferInfo)
                     }
                     encoder.releaseOutputBuffer(bufferId, false)
                 }
 
                 if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                    Log.i(TAG, "*************EOS***************")
+                    Log.v(TAG, "*************EOS***************")
                     isEncoding = false
                     listener?.onEncodeEnd()
                     break
                 }
             }
+            Log.v(TAG, "**********STOP MUXER**********")
+            muxer?.stop()
+            muxer?.release()
+            muxer = null
+            Log.v(TAG, "**********STOP ENCODER**********")
             encoder.stop()
-            muxer.stop()
-            muxer.release()
-            Log.i(TAG, "ENCODING FINISHED, $frameCount frames")
+            Log.v(TAG, "*****ENCODING FINISHED, $bufferCount buffers*****")
         }
     }
 

@@ -87,6 +87,7 @@ class CameraService(
             }
 
             override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {
+                Log.d(TAG, "PreviewSurface changed")
                 val previewSize = getPreviewOutputSize(
                     viewFinder.display, characteristics, SurfaceHolder::class.java
                 )
@@ -149,11 +150,13 @@ class CameraService(
         device: CameraDevice
     ): CameraCaptureSession =
         suspendCoroutine { cont ->
+            val t = System.currentTimeMillis()
             device.createCaptureSession(
                 listOf(previewSurface, recorder.getSurface()),
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
-                        Log.d(TAG, "CaptureSession configured")
+                        Log.d(TAG, "CaptureSession configured" +
+                                "(${System.currentTimeMillis() - t}ms)")
                         cont.resume(session)
                     }
 
