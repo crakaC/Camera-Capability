@@ -3,57 +3,41 @@ package com.crakac.encodingtest
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
-import android.media.MediaMuxer
-import android.util.Log
 import android.view.Surface
 import com.crakac.encodingtest.util.Encoder
+import com.crakac.encodingtest.util.LOG
+import com.crakac.encodingtest.util.Muxer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 class VideoEncoder(
     width: Int,
     height: Int,
     fps: Int,
     bitrate: Int,
-    codec: String? = null
+    codec: String? = null,
+    muxer: Muxer
 ) : Encoder {
-    interface VideoEncoderListener {
-        fun onData(data: ByteArray) {}
-        fun onEncodeEnd() {}
-    }
 
     companion object {
-        const val TAG = "VideoEncoder"
-        const val MIME_TYPE = "video/avc"
-        const val TIMEOUT_MICRO_SEC = 50_000L // 50ms
-        fun LOG(msg: String){
-            if(!BuildConfig.DEBUG) return
-            val ast = "*".repeat(maxOf((50 - msg.length) / 2, 1))
-            Log.d(TAG, "${ast}${msg}${ast}")
-        }
+        private const val TAG = "VideoEncoder"
+        private const val MIME_TYPE = "video/avc"
+        private const val TIMEOUT_MICRO_SEC = 50_000L // 50ms
     }
 
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    private var listener: VideoEncoderListener? = null
-    private var muxer: MediaMuxer? = null
-
-    fun setVideoEncoderListener(listener: VideoEncoderListener?) {
-        this.listener = listener
-    }
-
-    fun setMuxer(muxer: MediaMuxer) {
-        this.muxer = muxer
-    }
+    private val muxerRef = WeakReference(muxer)
+    private val muxer: Muxer get() = muxerRef.get()!!
 
     private var isEncoding = false
-    private val encoder: MediaCodec
+    private val codec: MediaCodec
     private val format: MediaFormat
 
     val surface: Surface = MediaCodec.createPersistentInputSurface()
 
-    private var bufferInfo = MediaCodec.BufferInfo()
     private var isFirstPrepare = true
 
     init {
@@ -68,13 +52,13 @@ class VideoEncoder(
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
             )
         }
-        encoder = if (codec != null) {
+        this.codec = if (codec != null) {
             MediaCodec.createByCodecName(codec)
         } else {
             MediaCodec.createEncoderByType(MIME_TYPE)
         }
-        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        encoder.setInputSurface(surface)
+        this.codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        this.codec.setInputSurface(surface)
     }
 
     fun prepare() {
@@ -82,19 +66,49 @@ class VideoEncoder(
             isFirstPrepare = false
             return
         }
-        encoder.reset()
-        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        encoder.setInputSurface(surface)
+        codec.reset()
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        codec.setInputSurface(surface)
     }
 
     override fun start() {
-        if (muxer == null) {
-            throw IllegalStateException("set muxer before start()")
-        }
         isEncoding = true
-        encoder.start()
-        LOG("ENCODING START")
+        codec.start()
+        LOG(TAG, "ENCODING START")
         drain()
+    }
+
+    private fun drain() = scope.launch {
+        val bufferInfo = MediaCodec.BufferInfo()
+        var trackId = -1
+        while (isEncoding) {
+            val outputBufferId = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_MICRO_SEC)
+            if (outputBufferId == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                continue
+            } else if (outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                LOG(TAG, "OUTPUT_FORMAT_CHANGED")
+                trackId = muxer.addTrack(codec.outputFormat)
+            } else {
+                val encodedData = codec.getOutputBuffer(outputBufferId)
+                    ?: throw RuntimeException("encodedData is null")
+                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                    bufferInfo.size = 0
+                }
+                if (bufferInfo.size > 0) {
+                    bufferInfo.presentationTimeUs = System.nanoTime() / 1000
+                    encodedData.position(bufferInfo.offset)
+                    encodedData.limit(bufferInfo.offset + bufferInfo.size)
+                    muxer.writeData(trackId, encodedData, bufferInfo)
+                }
+                codec.releaseOutputBuffer(outputBufferId, false)
+            }
+            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                throw RuntimeException("Unexpected EOS in VideoEncoder")
+            }
+        }
+        codec.stop()
+        LOG(TAG, "AudioEncoder finished")
+        muxer.stopMuxer()
     }
 
     override fun stop() {
@@ -111,53 +125,9 @@ class VideoEncoder(
 
     override fun isEncoding() = isEncoding
 
-    private fun drain() = scope.launch {
-        var trackIndex = -1
-        while (isEncoding) {
-            val bufferId = encoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_MICRO_SEC)
-            if (bufferId == MediaCodec.INFO_TRY_AGAIN_LATER) {
-                continue
-            } else if (bufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                LOG("OUTPUT FORMAT CHANGED")
-                val format = encoder.outputFormat
-                trackIndex = muxer!!.addTrack(format)
-                muxer!!.start()
-            } else {
-                val encodedData = encoder.getOutputBuffer(bufferId)
-                    ?: throw RuntimeException("VideoEncoder: encodedData was null")
-
-                if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                    bufferInfo.size = 0
-                }
-
-                if (bufferInfo.size > 0) {
-                    encodedData.position(bufferInfo.offset)
-                    encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                    muxer!!.writeSampleData(trackIndex, encodedData, bufferInfo)
-                }
-                encoder.releaseOutputBuffer(bufferId, false)
-            }
-
-            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                LOG("EOS")
-                isEncoding = false
-                break
-            }
-        }
-        LOG("STOP MUXER")
-        muxer?.stop()
-        muxer?.release()
-        muxer = null
-        LOG("STOP ENCODER")
-//        encoder.flush()
-        encoder.stop()
-        LOG("ENCODING FINISHED")
-        listener?.onEncodeEnd()
-    }
-
     fun release() {
         surface.release()
-        encoder.stop()
-        encoder.release()
+        codec.stop()
+        codec.release()
     }
 }
