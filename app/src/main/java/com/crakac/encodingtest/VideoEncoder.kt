@@ -95,7 +95,6 @@ class VideoEncoder(
                     bufferInfo.size = 0
                 }
                 if (bufferInfo.size > 0) {
-                    bufferInfo.presentationTimeUs = System.nanoTime() / 1000
                     encodedData.position(bufferInfo.offset)
                     encodedData.limit(bufferInfo.offset + bufferInfo.size)
                     muxer.writeData(trackId, encodedData, bufferInfo)
@@ -107,7 +106,7 @@ class VideoEncoder(
             }
         }
         codec.stop()
-        LOG(TAG, "AudioEncoder finished")
+        LOG(TAG, "VideoEncoder FINISHED")
         muxer.stopMuxer()
     }
 

@@ -7,9 +7,10 @@ import com.crakac.encodingtest.util.LOG
 import com.crakac.encodingtest.util.Muxer
 import kotlinx.coroutines.*
 import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
 
 class AudioEncoder(
-    samplingRate: Int = 44100,
+    private val samplingRate: Int = 44100,
     bitrate: Int = 64 * 1024,
     muxer: Muxer
 ) : Encoder {
@@ -17,16 +18,18 @@ class AudioEncoder(
         private const val MIME_TYPE = "audio/mp4a-latm"
         private const val CHANNEL_COUNT = 1
         private const val TAG: String = "AudioEncoder"
+        private const val NANOS_PER_SECOND = 1_000_000_000L
+        private const val NANOS_PER_MICROS = 1_000L
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Executors.newFixedThreadPool(2).asCoroutineDispatcher())
+    private var recordingJob: Job? = null
 
     private val muxerRef = WeakReference(muxer)
     private val muxer: Muxer get() = muxerRef.get()!!
 
-    private var recordingJob: Job? = null
-    private var encodingJob: Job? = null
     private var isEncoding = false
+
 
     private val audioBufferSize = AudioRecord.getMinBufferSize(
         samplingRate,
@@ -34,6 +37,7 @@ class AudioEncoder(
         AudioFormat.ENCODING_PCM_16BIT
     )
     private val audioBuffer = ByteArray(audioBufferSize)
+    private val bytesPerFrame = 2 * CHANNEL_COUNT
     private val audioRecord = AudioRecord(
         MediaRecorder.AudioSource.CAMCORDER,
         samplingRate,
@@ -64,12 +68,13 @@ class AudioEncoder(
     override fun start() {
         audioRecord.startRecording()
         codec.start()
-        recordingJob = record()
-        encodingJob = drain()
         isEncoding = true
+        recordingJob = record()
+        drain()
     }
 
     private fun record() = scope.launch {
+        var totalNumFramesRead = 0L
         while (isActive) {
             val bytes = audioRecord.read(audioBuffer, 0, audioBufferSize)
             if (bytes < 0) {
@@ -85,16 +90,26 @@ class AudioEncoder(
             val inputBufferId = codec.dequeueInputBuffer(-1)
             val inputBuffer = codec.getInputBuffer(inputBufferId)
             inputBuffer!!.put(audioBuffer)
-            if (isEncoding) {
-                codec.queueInputBuffer(inputBufferId, 0, audioBuffer.size, getTimestamp(), 0)
-            }
+            codec.queueInputBuffer(inputBufferId, 0, bytes, getTimestamp(totalNumFramesRead), 0)
+            totalNumFramesRead += bytes / bytesPerFrame
         }
+    }
+
+    // https://github.com/google/mediapipe/blob/master/mediapipe/java/com/google/mediapipe/components/MicrophoneHelper.java
+    private val audioTimestamp = AudioTimestamp()
+    private fun getTimestamp(framePosition: Long): Long {
+        audioRecord.getTimestamp(audioTimestamp, AudioTimestamp.TIMEBASE_MONOTONIC)
+        val referenceFrame = audioTimestamp.framePosition
+        val referenceTimestamp = audioTimestamp.nanoTime
+        val timestampNanos =
+            referenceTimestamp + (framePosition - referenceFrame) * NANOS_PER_SECOND / samplingRate
+        return timestampNanos / NANOS_PER_MICROS
     }
 
     private fun drain() = scope.launch {
         val bufferInfo = MediaCodec.BufferInfo()
         var trackId = -1
-        while (isEncoding()) {
+        while (true) {
             val outputBufferId = codec.dequeueOutputBuffer(bufferInfo, -1)
             if (outputBufferId == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 continue
@@ -108,7 +123,6 @@ class AudioEncoder(
                     bufferInfo.size = 0
                 }
                 if (bufferInfo.size > 0) {
-                    bufferInfo.presentationTimeUs = getTimestamp()
                     encodedData.position(bufferInfo.offset)
                     encodedData.limit(bufferInfo.offset + bufferInfo.size)
                     muxer.writeData(trackId, encodedData, bufferInfo)
@@ -121,8 +135,9 @@ class AudioEncoder(
             }
         }
         codec.stop()
-        LOG(TAG, "AudioEncoder finished")
+        LOG(TAG, "AudioEncoder FINISHED")
         muxer.stopMuxer()
+        isEncoding = false
     }
 
     override fun stop() {
