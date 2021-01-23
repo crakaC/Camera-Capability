@@ -1,12 +1,10 @@
-package com.crakac.encodingtest
+package com.crakac.encodingtest.recoder
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.view.Surface
-import com.crakac.encodingtest.util.Encoder
 import com.crakac.encodingtest.util.LOG
-import com.crakac.encodingtest.util.Muxer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

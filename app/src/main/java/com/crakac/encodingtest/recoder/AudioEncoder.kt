@@ -1,10 +1,8 @@
-package com.crakac.encodingtest
+package com.crakac.encodingtest.recoder
 
 import android.media.*
 import android.util.Log
-import com.crakac.encodingtest.util.Encoder
 import com.crakac.encodingtest.util.LOG
-import com.crakac.encodingtest.util.Muxer
 import kotlinx.coroutines.*
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executors

@@ -1,4 +1,4 @@
-package com.crakac.encodingtest
+package com.crakac.encodingtest.recoder
 
 import android.media.MediaCodec
 import android.media.MediaRecorder

@@ -1,13 +1,10 @@
-package com.crakac.encodingtest
+package com.crakac.encodingtest.recoder
 
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
-import android.os.Handler
-import android.os.HandlerThread
 import com.crakac.encodingtest.util.LOG
-import com.crakac.encodingtest.util.Muxer
 import com.crakac.encodingtest.util.Util
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch

@@ -15,6 +15,8 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import androidx.core.content.getSystemService
 import androidx.lifecycle.*
+import com.crakac.encodingtest.recoder.CodecRecorder
+import com.crakac.encodingtest.recoder.Recorder
 import com.crakac.encodingtest.util.AutoFitSurfaceView
 import com.crakac.encodingtest.util.OrientationLiveData
 import com.crakac.encodingtest.util.Util
@@ -106,7 +108,7 @@ class CameraService(
             recorder = CodecRecorder(width, height, fps, 5_000_000, Util.getCodec()) { uri ->
                 listener?.onSaved(uri)
             }
-//             recorder = DefaultMediaRecorder(width, height, fps) { uri -> listener?.onSaved(uri) }
+//          recorder = DefaultMediaRecorder(width, height, fps) { uri -> listener?.onSaved(uri) }
         }
         session = createCaptureSession(camera!!)
         session.setRepeatingRequest(previewRequest, null, null)

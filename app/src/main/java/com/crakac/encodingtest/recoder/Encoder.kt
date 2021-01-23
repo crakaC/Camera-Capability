@@ -1,4 +1,4 @@
-package com.crakac.encodingtest.util
+package com.crakac.encodingtest.recoder
 
 interface Encoder {
     fun start()
