@@ -38,9 +38,9 @@ class CodecRecorder(
 
     override fun addTrack(format: MediaFormat): Int {
         val trackId = muxer.addTrack(format)
-        synchronized(this){
+        synchronized(this) {
             currentTracks++
-            if(currentTracks == EXPECTED_TRACKS){
+            if (currentTracks == EXPECTED_TRACKS) {
                 muxer.start()
             }
         }
@@ -53,11 +53,12 @@ class CodecRecorder(
         muxer.writeSampleData(trackId, data, info)
     }
 
-    @Synchronized
     override fun stopMuxer() {
-        currentTracks--
-        if(currentTracks == 0) {
-            onEncodeFinish()
+        synchronized(this) {
+            currentTracks--
+            if (currentTracks == 0) {
+                onEncodeFinish()
+            }
         }
     }
 
@@ -74,7 +75,7 @@ class CodecRecorder(
         this.orientation = orientation
         videoEncoder.prepare()
         audioEncoder.prepare()
-        trackLatch =  CountDownLatch(EXPECTED_TRACKS)
+        trackLatch = CountDownLatch(EXPECTED_TRACKS)
         currentTracks = 0
     }
 

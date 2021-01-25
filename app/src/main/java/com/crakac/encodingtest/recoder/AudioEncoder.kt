@@ -20,7 +20,10 @@ class AudioEncoder(
         private const val NANOS_PER_MICROS = 1_000L
     }
 
-    private val scope = CoroutineScope(Executors.newFixedThreadPool(2).asCoroutineDispatcher())
+    private val scope = CoroutineScope(
+        Executors.newFixedThreadPool(2).asCoroutineDispatcher() +
+                CoroutineName("AudioEncoder")
+    )
     private var recordingJob: Job? = null
 
     private val muxerRef = WeakReference(muxer)

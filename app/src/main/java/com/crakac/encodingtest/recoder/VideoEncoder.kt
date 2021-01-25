@@ -5,10 +5,12 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.view.Surface
 import com.crakac.encodingtest.util.LOG
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
 
 class VideoEncoder(
     width: Int,
@@ -25,7 +27,10 @@ class VideoEncoder(
         private const val TIMEOUT_MICRO_SEC = 50_000L // 50ms
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher() +
+                CoroutineName("VideoEncoder")
+    )
 
     private val muxerRef = WeakReference(muxer)
     private val muxer: Muxer get() = muxerRef.get()!!

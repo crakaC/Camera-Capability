@@ -39,7 +39,7 @@ class CameraService(
     private val fps: Int,
     viewFinder: AutoFitSurfaceView
 ) : LifecycleObserver {
-    private val scope = CoroutineScope(Job())
+    private val scope = CoroutineScope(CoroutineName("CameraService"))
 
     private val previewRef = WeakReference(viewFinder)
     private val previewSurface: Surface get() = previewRef.get()!!.holder.surface
