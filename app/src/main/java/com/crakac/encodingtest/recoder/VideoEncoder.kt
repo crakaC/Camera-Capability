@@ -36,15 +36,15 @@ class VideoEncoder(
     private val muxer: Muxer get() = muxerRef.get()!!
 
     private var isEncoding = false
-    private val codec: MediaCodec
-    private val format: MediaFormat
 
-    val surface: Surface = MediaCodec.createPersistentInputSurface()
+    private val codec: MediaCodec = if (codec != null) {
+        MediaCodec.createByCodecName(codec)
+    } else {
+        MediaCodec.createEncoderByType(MIME_TYPE)
+    }
 
-    private var isFirstPrepare = true
-
-    init {
-        format = MediaFormat.createVideoFormat(MIME_TYPE, width, height).apply {
+    private val format: MediaFormat =
+        MediaFormat.createVideoFormat(MIME_TYPE, width, height).apply {
             setInteger(MediaFormat.KEY_WIDTH, width)
             setInteger(MediaFormat.KEY_HEIGHT, height)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
@@ -55,11 +55,12 @@ class VideoEncoder(
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
             )
         }
-        this.codec = if (codec != null) {
-            MediaCodec.createByCodecName(codec)
-        } else {
-            MediaCodec.createEncoderByType(MIME_TYPE)
-        }
+
+    val surface: Surface = MediaCodec.createPersistentInputSurface()
+
+    private var isFirstPrepare = true
+
+    init {
         this.codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         this.codec.setInputSurface(surface)
     }

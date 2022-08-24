@@ -9,11 +9,7 @@
         android:label="SelectorFragment" >
         <action
             android:id="@+id/action_selectorFragment_to_cameraFragment"
-            app:destination="@id/cameraFragment"
-            app:enterAnim="@anim/fragment_open_enter"
-            app:exitAnim="@anim/fragment_open_exit"
-            app:popEnterAnim="@anim/fragment_fade_enter"
-            app:popExitAnim="@anim/fragment_fade_exit" />
+            app:destination="@id/cameraFragment" />
         <action
             android:id="@+id/action_selectorFragment_to_codecSelectFragment"
             app:destination="@id/codecSelectFragment" />

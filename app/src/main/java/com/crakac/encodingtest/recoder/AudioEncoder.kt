@@ -1,5 +1,6 @@
 package com.crakac.encodingtest.recoder
 
+import android.annotation.SuppressLint
 import android.media.*
 import android.util.Log
 import com.crakac.encodingtest.util.LOG
@@ -39,6 +40,7 @@ class AudioEncoder(
     )
     private val audioBuffer = ByteArray(audioBufferSize)
     private val bytesPerFrame = 2 * CHANNEL_COUNT
+    @SuppressLint("MissingPermission")
     private val audioRecord = AudioRecord(
         MediaRecorder.AudioSource.CAMCORDER,
         samplingRate,
