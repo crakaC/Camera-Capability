@@ -7,14 +7,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 
-private val PERMISSIONS = arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+private val Permissions = arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
 private const val REQUEST_ID = 111
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        ActivityCompat.requestPermissions(this, PERMISSIONS, REQUEST_ID)
+        ActivityCompat.requestPermissions(this, Permissions, REQUEST_ID)
     }
 
     override fun onRequestPermissionsResult(
@@ -29,10 +29,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkPermissions() = PERMISSIONS.all {
-        ActivityCompat.checkSelfPermission(
-            this,
-            it
-        ) == PackageManager.PERMISSION_GRANTED
+    private fun checkPermissions() = Permissions.all {
+        ActivityCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 }

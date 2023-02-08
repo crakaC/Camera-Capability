@@ -32,7 +32,6 @@ class AudioEncoder(
 
     private var isEncoding = false
 
-
     private val audioBufferSize = AudioRecord.getMinBufferSize(
         samplingRate,
         AudioFormat.CHANNEL_IN_MONO,

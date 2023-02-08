@@ -21,18 +21,16 @@ class CameraFragment : Fragment() {
     private lateinit var cameraService: CameraService
     private lateinit var viewFinder: AutoFitSurfaceView
     private lateinit var captureButton: ImageView
-    private val listener = object : CameraService.StateListener {
-        override fun onSaved(savedFileUri: Uri) {
-            Snackbar.make(viewFinder, "Saved", Snackbar.LENGTH_LONG).setAction("Open") {
-                context?.startActivity(Intent().apply {
-                    action = Intent.ACTION_VIEW
-                    type = "video/mp4"
-                    data = savedFileUri
-                    flags =
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                })
-            }.show()
-        }
+    private val listener = CameraService.StateListener { savedFileUri ->
+        Snackbar.make(viewFinder, "Saved", Snackbar.LENGTH_LONG).setAction("Open") {
+            context?.startActivity(Intent().apply {
+                action = Intent.ACTION_VIEW
+                type = "video/mp4"
+                data = savedFileUri
+                flags =
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            })
+        }.show()
     }
 
     override fun onCreateView(
@@ -60,13 +58,9 @@ class CameraFragment : Fragment() {
                 captureButton.setImageResource(R.drawable.start_recording)
             }
         }
-        return binding.root
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
         captureButton.setOnClickListener {
             cameraService.toggleRecording()
         }
+        return binding.root
     }
 }

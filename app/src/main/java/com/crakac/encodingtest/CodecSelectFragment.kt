@@ -16,9 +16,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.crakac.encodingtest.util.GenericListAdapter
 import com.crakac.encodingtest.util.Util
 import com.google.android.material.snackbar.Snackbar
+import java.util.*
 
 class CodecSelectFragment : Fragment() {
-    val TAG: String = "CodecSelectFragment"
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -26,7 +26,6 @@ class CodecSelectFragment : Fragment() {
     ) = RecyclerView(requireContext())
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
         view as RecyclerView
         view.apply {
             val lm = LinearLayoutManager(requireContext())
@@ -53,7 +52,7 @@ class CodecSelectFragment : Fragment() {
         private val targetTypes = arrayOf("video/avc", "video/hevc")
         private fun enumerateVideoCodecs() =
             MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.filter { codec ->
-                codec.isEncoder && codec.supportedTypes.any { it.toLowerCase() in targetTypes }
+                codec.isEncoder && codec.supportedTypes.any { it.lowercase() in targetTypes }
             }
 
         fun MediaCodecInfo.toFormattedString(): String {

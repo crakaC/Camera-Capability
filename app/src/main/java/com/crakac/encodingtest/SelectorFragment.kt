@@ -8,7 +8,10 @@ import android.os.Bundle
 import android.util.Size
 import android.view.*
 import android.widget.TextView
+import androidx.core.view.MenuHost
+import androidx.core.view.MenuProvider
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavController
 import androidx.navigation.Navigation
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -52,19 +55,20 @@ class SelectorFragment : Fragment() {
 
             }
         }
-        setHasOptionsMenu(true)
-    }
+        val menuHost: MenuHost = requireActivity()
+        menuHost.addMenuProvider(object : MenuProvider {
+            override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+                menuInflater.inflate(R.menu.menu_selectorfragment, menu)
+            }
 
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        inflater.inflate(R.menu.menu_selectorfragment, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == R.id.select_codec) {
-            navController.navigate(SelectorFragmentDirections.actionSelectorFragmentToCodecSelectFragment())
-            return true
-        }
-        return false
+            override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+                if (menuItem.itemId == R.id.select_codec) {
+                    navController.navigate(SelectorFragmentDirections.actionSelectorFragmentToCodecSelectFragment())
+                    return true
+                }
+                return false
+            }
+        }, viewLifecycleOwner, Lifecycle.State.RESUMED)
     }
 
     companion object {

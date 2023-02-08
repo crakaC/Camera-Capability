@@ -38,7 +38,7 @@ class CameraService(
     private val height: Int,
     private val fps: Int,
     viewFinder: AutoFitSurfaceView
-) : LifecycleObserver {
+) : DefaultLifecycleObserver {
     private val scope = CoroutineScope(CoroutineName("CameraService"))
 
     private val previewRef = WeakReference(viewFinder)
@@ -85,7 +85,9 @@ class CameraService(
         viewFinder.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 Log.d(TAG, "PreviewSurface created")
-                initializeCamera()
+                scope.launch {
+                    initializeCamera()
+                }
             }
 
             override fun surfaceChanged(holder: SurfaceHolder, f: Int, w: Int, h: Int) {
@@ -102,7 +104,7 @@ class CameraService(
         })
     }
 
-    private fun initializeCamera() = scope.launch {
+    private suspend fun initializeCamera() {
         camera = openCamera(cameraManager, cameraId)
         if (!::recorder.isInitialized) {
             recorder = CodecRecorder(width, height, fps, 5_000_000, Util.getCodec()) { uri ->
@@ -178,22 +180,20 @@ class CameraService(
     private fun startRecording() {
         if (_isRecording.value == true) return
         _isRecording.value = true
-        scope.launch {
-            session.setRepeatingRequest(
-                recordRequest,
-                object : CameraCaptureSession.CaptureCallback() {
-                    override fun onCaptureSequenceCompleted(
-                        session: CameraCaptureSession, sequenceId: Int, frameNumber: Long
-                    ) {
-                        recorder.stop()
-                    }
-                },
-                cameraHandler
-            )
-            recorder.prepare(orientation)
-            recorder.start()
-            recordingStartMillis = System.currentTimeMillis()
-        }
+        session.setRepeatingRequest(
+            recordRequest,
+            object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureSequenceCompleted(
+                    session: CameraCaptureSession, sequenceId: Int, frameNumber: Long
+                ) {
+                    recorder.stop()
+                }
+            },
+            cameraHandler
+        )
+        recorder.prepare(orientation)
+        recorder.start()
+        recordingStartMillis = System.currentTimeMillis()
     }
 
     private fun stopRecording() {
@@ -213,30 +213,22 @@ class CameraService(
         this.listener = listener
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_START)
-    private fun start() {
-        Log.d(TAG, "start()")
+    override fun onStart(owner: LifecycleOwner) {
         orientationLiveData.observeForever(orientationObserver)
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_STOP)
-    private fun stop() {
-        Log.d(TAG, "stop()")
+    override fun onStop(owner: LifecycleOwner) {
         orientationLiveData.removeObserver(orientationObserver)
         stopRecording()
         session.stopRepeating()
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-    private fun release() {
-        Log.d(TAG, "release()")
+    override fun onDestroy(owner: LifecycleOwner) {
         listener = null
-        scope.launch {
-            close(camera)
-            recorder.release()
-            session.close()
-            cameraThread.quitSafely()
-        }
+        close(camera)
+        recorder.release()
+        session.close()
+        cameraThread.quitSafely()
         scope.cancel()
     }
 
@@ -256,7 +248,7 @@ class CameraService(
         }
     }
 
-    interface StateListener {
+    fun interface StateListener {
         fun onSaved(savedFileUri: Uri)
     }
 }
